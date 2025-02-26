@@ -28,11 +28,12 @@ class DownloadThread(QThread):
     progress_signal = pyqtSignal(int)
     finished_signal = pyqtSignal()
 
-    def __init__(self, playlist_urls, download_folder, quality):
+    def __init__(self, playlist_urls, download_folder, quality, video_format):
         super().__init__()
         self.playlist_urls = playlist_urls
         self.download_folder = download_folder
         self.quality = quality
+        self.video_format = video_format  # Yeni parametre
         self.toaster = ToastNotifier()
 
     def run(self):
@@ -47,31 +48,42 @@ class DownloadThread(QThread):
                     'concurrent_fragment_downloads': 3,  # Aynı anda 3 video indir
                 }
 
-                # Kalite seçenekleri
+                # Formatı belirleme
+                if self.video_format == "MP4":
+                    format_string = 'bestaudio[ext=m4a]+bestvideo[ext=mp4]'
+                elif self.video_format == "MKV":
+                    format_string = 'bestaudio[ext=m4a]+bestvideo[ext=mkv]'
+                elif self.video_format == "WEBM":
+                    format_string = 'bestaudio[ext=m4a]+bestvideo[ext=webm]'
+                elif self.video_format == "FLV":
+                    format_string = 'bestaudio[ext=m4a]+bestvideo[ext=flv]'
+
+                # Kaliteyi ve formatı birleştirme
                 if self.quality == "8K":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=4320]'
+                    ydl_opts['format'] = f'{format_string}[height<=4320]'
                 elif self.quality == "4K":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=2160]'
+                    ydl_opts['format'] = f'{format_string}[height<=2160]'
                 elif self.quality == "2K":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=1440]'
+                    ydl_opts['format'] = f'{format_string}[height<=1440]'
                 elif self.quality == "1080p":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=1080]'
+                    ydl_opts['format'] = f'{format_string}[height<=1080]'
                 elif self.quality == "720p":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=720]'
+                    ydl_opts['format'] = f'{format_string}[height<=720]'
                 elif self.quality == "480p":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=480]'
+                    ydl_opts['format'] = f'{format_string}[height<=480]'
                 elif self.quality == "360p":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=360]'
+                    ydl_opts['format'] = f'{format_string}[height<=360]'
                 elif self.quality == "144p":
-                    ydl_opts['format'] = 'bestaudio[ext=m4a]+bestvideo[height<=144]'
+                    ydl_opts['format'] = f'{format_string}[height<=144]'
 
                 with ytdlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([playlist_url])
 
+                self.finished_signal.emit()
+                self.toaster.show_toast("İndirme Tamamlandı", "Video başarıyla indirildi!", duration=10)
             except Exception as e:
-                print(f"İndirme sırasında hata oluştu: {str(e)}")
-
-        self.finished_signal.emit()
+                print(f"Hata: {e}")
+                self.finished_signal.emit()
 
     def progress_hook(self, d):
         if d['status'] == 'downloading':
@@ -81,7 +93,6 @@ class DownloadThread(QThread):
             self.progress_signal.emit(int(percentage))  # Yüzdeyi pyqtSignal olarak ayarlıyoruz
         elif d['status'] == 'finished':
             self.toaster.show_toast("İndirme Tamamlandı", "Video başarıyla indirildi!", duration=10)
-
 
 class DownloadApp(QWidget):
     def __init__(self):
@@ -136,6 +147,15 @@ class DownloadApp(QWidget):
         self.quality_combobox.addItems(quality_choices)
         self.layout.addWidget(self.quality_combobox)
 
+        # Format seçimi
+        self.label_format = QLabel("Video Formatı Seçin:")
+        self.layout.addWidget(self.label_format)
+
+        self.format_combobox = QComboBox(self)
+        format_choices = ["MP4", "MKV", "WEBM", "FLV"]
+        self.format_combobox.addItems(format_choices)
+        self.layout.addWidget(self.format_combobox)
+
         # Başlat, Durdur, İptal Butonları
         self.start_button = QPushButton("İndirmeye Başla", self)
         self.start_button.clicked.connect(self.start_download)
@@ -173,12 +193,13 @@ class DownloadApp(QWidget):
         playlist_urls = list(filter(None, map(str.strip, self.playlist_url_entry.toPlainText().split("\n"))))
         download_folder = self.folder_path_entry.text().strip()
         selected_quality = self.quality_combobox.currentText()
+        selected_format = self.format_combobox.currentText()
 
         if not playlist_urls or not download_folder:
             print("Lütfen geçerli URL'ler ve klasör yolu girin.")
             return
 
-        self.download_thread = DownloadThread(playlist_urls, download_folder, selected_quality)
+        self.download_thread = DownloadThread(playlist_urls, download_folder, selected_quality, selected_format)
         self.download_thread.progress_signal.connect(self.update_progress)
         self.download_thread.finished_signal.connect(self.on_download_finished)
         self.download_thread.start()
